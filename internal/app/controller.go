@@ -126,7 +126,8 @@ func (controller *Controller) Start(ctx context.Context) {
 func (controller *Controller) InitialState() ui.MenuBarViewState {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
-	return controller.buildMenuBarStateLocked(time.Now(), "Starting")
+	locale := ui.LocaleForPreferences(controller.cfg.Preferences)
+	return controller.buildMenuBarStateLocked(time.Now(), locale.StatusStarting)
 }
 
 func (controller *Controller) saveConfigLocked() {

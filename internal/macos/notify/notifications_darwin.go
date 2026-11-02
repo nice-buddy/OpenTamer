@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/Digital-Shane/open-tamer/internal/app"
+	"github.com/Digital-Shane/open-tamer/internal/ui"
 )
 
 const notificationQueueSize = 16
@@ -52,7 +53,8 @@ func (notifier *UserNotifier) run() {
 }
 
 func deliverHighCPUNotification(notice app.HighCPUNotice) error {
-	return deliverNotification("High CPU usage", fmt.Sprintf("%s is using %.0f%% CPU.", notice.AppName, notice.CPUPercent))
+	locale := ui.LocaleForLanguage(notice.Language)
+	return deliverNotification(locale.HighCPUUsage, locale.HighCPUBody(notice.AppName, notice.CPUPercent))
 }
 
 func deliverNativeNotification(titleText, bodyText string) error {

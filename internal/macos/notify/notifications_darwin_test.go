@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Digital-Shane/open-tamer/internal/app"
+	"github.com/Digital-Shane/open-tamer/internal/core"
 )
 
 func TestNotifyHighCPURejectsNilNotifier(t *testing.T) {
@@ -66,6 +67,30 @@ func TestDeliverHighCPUNotificationPropagatesNativeError(t *testing.T) {
 	err := deliverHighCPUNotification(app.HighCPUNotice{AppName: "Preview", CPUPercent: 87.6})
 	if !errors.Is(err, want) {
 		t.Fatalf("error = %v, want %v", err, want)
+	}
+}
+
+func TestDeliverHighCPUNotificationUsesChineseLocale(t *testing.T) {
+	old := deliverNotification
+	t.Cleanup(func() {
+		deliverNotification = old
+	})
+
+	var gotTitle, gotBody string
+	deliverNotification = func(title, body string) error {
+		gotTitle = title
+		gotBody = body
+		return nil
+	}
+
+	if err := deliverHighCPUNotification(app.HighCPUNotice{AppName: "预览", CPUPercent: 87.6, Language: core.LanguageChinese}); err != nil {
+		t.Fatalf("deliver high CPU notification: %v", err)
+	}
+	if gotTitle != "CPU 占用过高" {
+		t.Fatalf("title = %q, want Chinese title", gotTitle)
+	}
+	if gotBody != "预览 的 CPU 占用为 88%。" {
+		t.Fatalf("body = %q, want Chinese body", gotBody)
 	}
 }
 

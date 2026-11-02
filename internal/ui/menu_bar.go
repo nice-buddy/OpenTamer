@@ -83,6 +83,7 @@ type MenuBarViewState struct {
 	TopProcesses    []ProcessRow           `json:"topProcesses"`
 	AllProcesses    []ProcessRow           `json:"allProcesses"`
 	ManagedApps     []ManagedAppRow        `json:"managedApps"`
+	Locale          Locale                 `json:"locale"`
 }
 
 func BuildProcessRows(groups []core.AppGroup, samples []core.AppCPUSample, statuses map[string]core.AppStatus, includeSystem bool, limit int) []ProcessRow {
@@ -267,7 +268,7 @@ func WithManagedAverageCPU(rows []ManagedAppRow, averageRows []ProcessRow) []Man
 	return next
 }
 
-func AppendSystemCPUResidualRow(rows []ProcessRow, totalSystemCPU float64, logicalCPUCount int, limit int) []ProcessRow {
+func AppendSystemCPUResidualRow(rows []ProcessRow, totalSystemCPU float64, logicalCPUCount int, limit int, locale Locale) []ProcessRow {
 	if logicalCPUCount <= 0 {
 		logicalCPUCount = 1
 	}
@@ -289,14 +290,14 @@ func AppendSystemCPUResidualRow(rows []ProcessRow, totalSystemCPU float64, logic
 
 	residualProcessCPU := residualSystemCPU * float64(logicalCPUCount)
 	return append(visibleRows, ProcessRow{
-		Name:                    "System / Other",
+		Name:                    locale.SystemOther,
 		CPUPercent:              residualProcessCPU,
 		SystemCPUPercent:        residualSystemCPU,
 		AverageCPUPercent:       residualProcessCPU,
 		AverageSystemCPUPercent: residualSystemCPU,
 		HasCPUSample:            true,
 		Status:                  core.AppStatusObserved,
-		BlockerReason:           "Unlisted processes and system CPU not attributed to sampled apps",
+		BlockerReason:           locale.SystemOtherNote,
 		CanPause:                false,
 		CanSlow:                 false,
 		SystemBucket:            true,
@@ -371,7 +372,7 @@ func buildRuleProcessRows(rules []core.AppRule, groups []core.AppGroup, samples 
 	return rows
 }
 
-func BuildManagedRows(rules []core.AppRule, groups []core.AppGroup, samples []core.AppCPUSample, statuses map[string]core.AppStatus) []ManagedAppRow {
+func BuildManagedRows(rules []core.AppRule, groups []core.AppGroup, samples []core.AppCPUSample, statuses map[string]core.AppStatus, locale Locale) []ManagedAppRow {
 	groupByApp := make(map[string]core.AppGroup, len(groups))
 	for _, group := range groups {
 		groupByApp[group.ID.Key()] = group
@@ -408,7 +409,7 @@ func BuildManagedRows(rules []core.AppRule, groups []core.AppGroup, samples []co
 			AppID:                rule.AppID,
 			AppKey:               rule.AppID.Key(),
 			RuleMode:             rule.Mode,
-			RuleLabel:            ruleLabel(rule),
+			RuleLabel:            localizedRuleLabel(rule, locale),
 			CPUPercent:           sample.CPUPercent,
 			Status:               status,
 			BlockerReason:        string(group.SafetyReason),
@@ -434,30 +435,30 @@ func matchingRuleForApp(app core.AppID, rules []core.AppRule) (core.AppRule, boo
 	return core.AppRule{}, false
 }
 
-func ruleLabel(rule core.AppRule) string {
+func localizedRuleLabel(rule core.AppRule, locale Locale) string {
 	switch rule.Mode {
 	case core.RuleModeObserveOnly:
-		return "Track Only"
+		return locale.RuleTrackOnly
 	case core.RuleModePauseInBackground:
-		return "Pause in Background"
+		return locale.RulePauseInBackground
 	case core.RuleModeLowerPriorityInBackground:
 		if rule.BackgroundOnly {
-			return "Lower Priority in Background"
+			return locale.RuleLowerPriorityBackground
 		}
-		return "Lower Priority Always"
+		return locale.RuleLowerPriorityAlways
 	case core.RuleModeLimitCPUInBackground:
-		label := "Limit CPU"
+		label := locale.RuleLimitCPU
 		if rule.CPUPercent != nil {
-			label += fmt.Sprintf(" to %s", apppolicy.FormatCPULimitPercent(*rule.CPUPercent))
+			label += fmt.Sprintf(" %s %s", locale.LimitTargetPrefix, apppolicy.FormatCPULimitPercent(*rule.CPUPercent))
 		}
 		if rule.BackgroundOnly {
-			return label + " in Background"
+			return label + locale.RuleBackgroundSuffix
 		}
-		return label + " Always"
+		return label + locale.RuleAlwaysSuffix
 	case core.RuleModeHideAfterIdle:
-		return "Hide After Idle"
+		return locale.RuleHideAfterIdle
 	case core.RuleModeQuitAfterIdle:
-		return "Quit After Idle"
+		return locale.RuleQuitAfterIdle
 	default:
 		return string(rule.Mode)
 	}

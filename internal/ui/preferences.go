@@ -44,6 +44,7 @@ const (
 	PreferenceHighCPUDuration               PreferenceField = "highCPUDuration"
 	PreferenceHighCPUCooldown               PreferenceField = "highCPUCooldown"
 	PreferenceTheme                         PreferenceField = "theme"
+	PreferenceLanguage                      PreferenceField = "language"
 )
 
 type PreferencesCommand struct {
@@ -199,6 +200,12 @@ func setStringPreference(preferences *core.GlobalPreferences, field PreferenceFi
 			return fmt.Errorf("unsupported theme mode %q", value)
 		}
 		preferences.Theme = normalized
+	case PreferenceLanguage:
+		normalized := core.NormalizeLanguage(value)
+		if normalized != value {
+			return fmt.Errorf("unsupported language %q", value)
+		}
+		preferences.Language = normalized
 	default:
 		return fmt.Errorf("unsupported string preference %q", field)
 	}

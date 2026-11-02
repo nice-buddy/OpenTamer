@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Digital-Shane/open-tamer/internal/core"
@@ -38,6 +40,7 @@ func DefaultConfig() Config {
 			HighCPUDuration:         30 * time.Second,
 			HighCPUCooldown:         10 * time.Minute,
 			Theme:                   "system",
+			Language:                "",
 		},
 		Rules: make([]core.AppRule, 0),
 	}
@@ -65,6 +68,7 @@ func MigrateConfig(in Config) (Config, error) {
 	in.Preferences.CPUGraphWindow = core.NormalizeCPUGraphWindow(in.Preferences.CPUGraphWindow)
 
 	in.Preferences.Theme = core.NormalizeThemeMode(in.Preferences.Theme)
+	in.Preferences.Language = core.NormalizeLanguage(in.Preferences.Language)
 
 	if in.Preferences.HighCPUThreshold == 0 {
 		in.Preferences.HighCPUThreshold = defaults.Preferences.HighCPUThreshold
@@ -108,7 +112,12 @@ func (store Store) LoadConfig() (Config, error) {
 	path := store.configPath()
 	payload, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return DefaultConfig(), nil
+		cfg := DefaultConfig()
+		cfg.Preferences.Language = DetectLanguage()
+		if saveErr := store.SaveConfig(cfg); saveErr != nil {
+			return cfg, fmt.Errorf("persist detected language: %w", saveErr)
+		}
+		return cfg, nil
 	}
 	if err != nil {
 		return DefaultConfig(), err
@@ -159,6 +168,11 @@ func (store Store) LoadConfig() (Config, error) {
 		changed = true
 	}
 
+	if !configHasPreference(payload, "language") {
+		migrated.Preferences.Language = DetectLanguage()
+		changed = true
+	}
+
 	if !configHasPreference(payload, "wakeGrace") {
 		migrated.Preferences.WakeGrace = DefaultConfig().Preferences.WakeGrace
 		if hasLegacyStartupGrace {
@@ -201,6 +215,38 @@ func configHasPreference(payload []byte, name string) bool {
 	}
 	_, ok := raw.Preferences[name]
 	return ok
+}
+
+func DetectLanguage() string {
+	if language := languageFromAppleLanguages(); language != "" {
+		return language
+	}
+	language := strings.ToLower(os.Getenv("LANG"))
+	if language == "" {
+		language = strings.ToLower(os.Getenv("LC_ALL"))
+	}
+	if strings.HasPrefix(language, "zh") {
+		return core.LanguageChinese
+	}
+	return core.LanguageEnglish
+}
+
+func languageFromAppleLanguages() string {
+	output, err := exec.Command("defaults", "read", "-g", "AppleLanguages").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(strings.Trim(strings.TrimSpace(line), ","))
+		if line == "" || line == "(" || line == ")" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "zh") {
+			return core.LanguageChinese
+		}
+		return core.LanguageEnglish
+	}
+	return ""
 }
 
 func configUsesLegacyTrayTracking(cfg Config) bool {

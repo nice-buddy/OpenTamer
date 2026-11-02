@@ -157,6 +157,15 @@ OpenTamer stores local JSON files in `~/Library/Application Support/OpenTamer`.
 
 Download the latest version from the [releases page](https://github.com/Digital-Shane/OpenTamer/releases).
 
+## Language Support
+
+OpenTamer supports both English and Chinese (Simplified). The app automatically detects your system language on first launch.
+
+You can change the language in **Preferences > Language**:
+- Auto (default) - Follows system language
+- English
+- 简体中文 (Simplified Chinese)
+
 ## Contributing
 
 Contributions are welcome! If you have any suggestions or encounter a bug, please open an

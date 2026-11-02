@@ -42,6 +42,9 @@ func TestLoadConfigReturnsDefaultsWhenMissing(t *testing.T) {
 	if cfg.Preferences.Theme != "system" {
 		t.Fatalf("theme = %q, want %q", cfg.Preferences.Theme, "system")
 	}
+	if cfg.Preferences.Language != core.LanguageEnglish && cfg.Preferences.Language != core.LanguageChinese {
+		t.Fatalf("language = %q, want detected language", cfg.Preferences.Language)
+	}
 }
 
 func TestSaveConfigWritesAtomicallyReadableConfig(t *testing.T) {
@@ -176,6 +179,9 @@ func TestLoadConfigBackfillsMissingPreferences(t *testing.T) {
 	if cfg.Preferences.Theme != "system" {
 		t.Fatal("theme should be backfilled to system")
 	}
+	if cfg.Preferences.Language != core.LanguageEnglish && cfg.Preferences.Language != core.LanguageChinese {
+		t.Fatalf("language = %q, want en or zh", cfg.Preferences.Language)
+	}
 	updated, err := os.ReadFile(filepath.Join(dir, "config.json"))
 	if err != nil {
 		t.Fatalf("read updated config: %v", err)
@@ -200,6 +206,9 @@ func TestLoadConfigBackfillsMissingPreferences(t *testing.T) {
 	}
 	if !bytes.Contains(updated, []byte(`"theme": "system"`)) {
 		t.Fatalf("updated config missing theme: %s", updated)
+	}
+	if !bytes.Contains(updated, []byte(`"language": "en"`)) && !bytes.Contains(updated, []byte(`"language": "zh"`)) {
+		t.Fatalf("updated config missing language: %s", updated)
 	}
 	if bytes.Contains(updated, []byte("startupGrace")) {
 		t.Fatalf("updated config should drop legacy startupGrace: %s", updated)

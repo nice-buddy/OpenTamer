@@ -6,6 +6,7 @@
 #import <string.h>
 
 #import "menu_bar_bridge.h"
+#import "l10n_bridge.h"
 
 #ifndef __has_feature
 #define __has_feature(feature) 0
@@ -15,6 +16,77 @@
 #endif
 
 extern void opentamer_menu_command(const char *command);
+
+static NSString *OpenTamerUILanguage = @"en";
+
+static NSString *OpenTamerLocalized(NSString *key) {
+    if (key.length == 0) {
+        return key;
+    }
+    char *value = OpenTamerL10nTranslate(OpenTamerUILanguage.UTF8String, key.UTF8String);
+    if (value == NULL) {
+        return key;
+    }
+    NSString *translated = [NSString stringWithUTF8String:value];
+    OpenTamerL10nFree(value);
+    return translated.length > 0 ? translated : key;
+}
+
+static NSString *OpenTamerStatusText(NSString *status) {
+    if (status.length == 0) {
+        return OpenTamerLocalized(@"unknown");
+    }
+    char *value = OpenTamerL10nStatus(OpenTamerUILanguage.UTF8String, status.UTF8String);
+    if (value == NULL) {
+        return status;
+    }
+    NSString *translated = [NSString stringWithUTF8String:value];
+    OpenTamerL10nFree(value);
+    return translated.length > 0 ? translated : status;
+}
+
+static NSString *OpenTamerSafetyText(NSString *reason) {
+    if (reason.length == 0) {
+        return reason;
+    }
+    char *value = OpenTamerL10nSafety(OpenTamerUILanguage.UTF8String, reason.UTF8String);
+    if (value == NULL) {
+        return reason;
+    }
+    NSString *translated = [NSString stringWithUTF8String:value];
+    OpenTamerL10nFree(value);
+    return translated.length > 0 ? translated : reason;
+}
+
+static NSString *OpenTamerDisplayName(NSString *name) {
+    if (name.length == 0 ||
+        [name isEqualToString:@"Unknown App"] ||
+        [name isEqualToString:@"Unknown Process"]) {
+        return OpenTamerLocalized(@"unknown_process");
+    }
+    return name;
+}
+
+static void OpenTamerApplyLanguage(NSDictionary *state) {
+    NSString *language = nil;
+    id locale = state[@"locale"];
+    if ([locale isKindOfClass:NSDictionary.class]) {
+        id value = locale[@"language"];
+        if ([value isKindOfClass:NSString.class]) {
+            language = value;
+        }
+    }
+    if (language.length == 0) {
+        id preferences = state[@"preferences"];
+        if ([preferences isKindOfClass:NSDictionary.class]) {
+            id value = preferences[@"language"];
+            if ([value isKindOfClass:NSString.class]) {
+                language = value;
+            }
+        }
+    }
+    OpenTamerUILanguage = language.length > 0 ? [language copy] : @"en";
+}
 
 @protocol OpenTamerPanelActionHandling
 - (void)performPanelAction:(NSDictionary *)action event:(NSEvent *)event sourceView:(NSView *)view;
@@ -222,9 +294,6 @@ static NSColor *OpenTamerGraphColor(NSUInteger index) {
     }
 }
 
-static const CGFloat OpenTamerStatusItemLengthWithIcon = 78.0;
-static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
-
 @interface OpenTamerPanelView : NSView
 @property(nonatomic, assign) id<OpenTamerPanelActionHandling> controller;
 @property(nonatomic, strong) NSMutableArray *actions;
@@ -422,7 +491,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
     NSDictionary *row = [action[@"row"] isKindOfClass:NSDictionary.class] ? action[@"row"] : @{};
     NSString *kind = [action[@"kind"] isKindOfClass:NSString.class] ? action[@"kind"] : @"";
-    NSString *name = OpenTamerStringFromValue(row[@"name"], @"Unknown");
+    NSString *name = OpenTamerDisplayName(OpenTamerStringFromValue(row[@"name"], @""));
     NSString *displayMode = OpenTamerCPUDisplayMode(OpenTamerStringFromValue(action[@"cpuDisplayMode"], @"per_core_process"));
     double displayCPU = OpenTamerDisplayCPUFromRow(row, displayMode);
     double averageCPU = OpenTamerAverageDisplayCPUFromRow(row, displayMode);
@@ -430,7 +499,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
                        OpenTamerFormattedStatusPercent(displayCPU),
                        OpenTamerFormattedStatusPercent(averageCPU)];
     if ([kind isEqualToString:@"managed"]) {
-        NSString *rule = OpenTamerStringFromValue(row[@"ruleLabel"], @"Rule");
+        NSString *rule = OpenTamerStringFromValue(row[@"ruleLabel"], OpenTamerLocalized(@"rule_fallback"));
         right = [NSString stringWithFormat:@"%@  %@", OpenTamerFormattedStatusPercent(displayCPU), rule];
     }
 
@@ -661,8 +730,8 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
             NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
         };
         NSString *message = graphLineCount > 0 && hiddenLineCount == graphLineCount
-            ? @"All graph lines hidden"
-            : @"Collecting CPU history";
+            ? OpenTamerLocalized(@"graph_hidden")
+            : OpenTamerLocalized(@"graph_collecting");
         [message drawInRect:NSInsetRect(bounds, 16, 46) withAttributes:attrs];
     }
 }
@@ -689,6 +758,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
         return nil;
     }
     _state = state ?: @{};
+    OpenTamerApplyLanguage(_state);
     _trackedStatusItems = [NSMutableDictionary dictionary];
     _hiddenGraphAppKeys = [NSMutableSet set];
     return self;
@@ -716,6 +786,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (void)updateWithState:(NSDictionary *)state {
     self.state = state ?: @{};
+    OpenTamerApplyLanguage(self.state);
     [self pruneHiddenGraphAppKeys];
 
     if (@available(macOS 10.14, *)) {
@@ -920,11 +991,15 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSString *)cpuDisplayLabel {
-    return OpenTamerUsesSystemNormalizedCPU([self cpuDisplayMode]) ? @"System CPU" : @"Process CPU";
+    return OpenTamerUsesSystemNormalizedCPU([self cpuDisplayMode])
+        ? OpenTamerLocalized(@"system_cpu_label")
+        : OpenTamerLocalized(@"process_cpu_label");
 }
 
 - (NSString *)topProcessesCPULabel {
-    return OpenTamerUsesSystemNormalizedCPU([self cpuDisplayMode]) ? @"system CPU" : @"process CPU";
+    return OpenTamerUsesSystemNormalizedCPU([self cpuDisplayMode])
+        ? OpenTamerLocalized(@"system_cpu_short")
+        : OpenTamerLocalized(@"process_cpu_short");
 }
 
 - (double)displayCPUPercentForRow:(NSDictionary *)row {
@@ -950,19 +1025,19 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (NSString *)topProcessesHeaderTitle {
     if ([[self topProcessesSortMode] isEqualToString:@"average"]) {
-        return [NSString stringWithFormat:@"Top Processes (60s avg %@)", [self topProcessesCPULabel]];
+        return [NSString stringWithFormat:OpenTamerLocalized(@"top_average"), [self topProcessesCPULabel]];
     }
-    return [NSString stringWithFormat:@"Top Processes (current %@)", [self topProcessesCPULabel]];
+    return [NSString stringWithFormat:OpenTamerLocalized(@"top_current"), [self topProcessesCPULabel]];
 }
 
 - (void)addCPUSummaryForRow:(NSDictionary *)row toMenu:(NSMenu *)menu {
-    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"%@: %@", [self cpuDisplayLabel], [self formattedStatusPercent:[self displayCPUPercentForRow:row]]]]];
+    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"label_value"), [self cpuDisplayLabel], [self formattedStatusPercent:[self displayCPUPercentForRow:row]]]]];
 }
 
 - (NSString *)shortStatusName:(NSString *)name {
     NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (trimmed.length == 0) {
-        return @"App";
+        return OpenTamerLocalized(@"app_fallback");
     }
     if (trimmed.length <= 16) {
         return trimmed;
@@ -979,6 +1054,14 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
         NSParagraphStyleAttributeName: style
     };
     return [[NSAttributedString alloc] initWithString:text attributes:attrs];
+}
+
+- (CGFloat)statusItemLengthForTitle:(NSString *)title showIcon:(BOOL)showIcon {
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:13 weight:NSFontWeightRegular];
+    CGFloat textWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width);
+    CGFloat iconWidth = showIcon ? 18.0 : 0.0;
+    CGFloat spacing = showIcon ? 2.0 : 0.0;
+    return MAX(24.0, ceil(textWidth + iconWidth + spacing + 8.0));
 }
 
 - (NSImage *)openTamerStatusIcon {
@@ -1028,21 +1111,22 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     button.accessibilityLabel = @"OpenTamer";
     button.accessibilityIdentifier = @"OpenTamerStatusItem";
     BOOL showIcon = [self showMenuBarIcon];
-    self.statusItem.length = showIcon ? OpenTamerStatusItemLengthWithIcon : OpenTamerStatusItemLengthTextOnly;
     button.image = showIcon ? [self openTamerStatusIcon] : nil;
     button.imagePosition = NSImageLeft;
+    button.imageHugsTitle = YES;
     button.alignment = NSTextAlignmentCenter;
     button.target = self;
     button.action = @selector(togglePrimaryPopover:);
 
     NSString *title = nil;
     if (![self managementEnabled]) {
-        title = @"Off";
+        title = OpenTamerLocalized(@"status_off");
     } else if ([[self alertLevel] isEqualToString:@"high"]) {
         title = [NSString stringWithFormat:@"! %@", [self formattedPercent:[self totalCPU]]];
     } else {
         title = [self formattedPercent:[self totalCPU]];
     }
+    self.statusItem.length = [self statusItemLengthForTitle:title showIcon:showIcon];
     button.attributedTitle = [self statusTitleWithText:title];
     button.toolTip = @"OpenTamer";
 }
@@ -1204,14 +1288,14 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (NSMenuItem *)cpuLimitItemWithAppKey:(NSString *)appKey enabled:(BOOL)enabled {
     if (!enabled) {
-        return [self disabledItemWithTitle:@"Limit CPU..."];
+        return [self disabledItemWithTitle:OpenTamerLocalized(@"limit_cpu_menu")];
     }
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Limit CPU..."
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"limit_cpu_menu")
                                                   action:nil
                                            keyEquivalent:@""];
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Limit CPU"];
-    [submenu addItem:[self cpuLimitScopeItemWithTitle:@"In Background" mode:@"limit-background" appKey:appKey]];
-    [submenu addItem:[self cpuLimitScopeItemWithTitle:@"Always" mode:@"limit-always" appKey:appKey]];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"limit_cpu")];
+    [submenu addItem:[self cpuLimitScopeItemWithTitle:OpenTamerLocalized(@"in_background") mode:@"limit-background" appKey:appKey]];
+    [submenu addItem:[self cpuLimitScopeItemWithTitle:OpenTamerLocalized(@"always") mode:@"limit-always" appKey:appKey]];
     item.submenu = submenu;
     return item;
 }
@@ -1219,14 +1303,15 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 - (NSMenuItem *)cpuLimitScopeItemWithTitle:(NSString *)title mode:(NSString *)mode appKey:(NSString *)appKey {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
     NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:title];
+    [submenu addItem:[self cpuLimitPresetItemWithTitle:@"100%" value:@"100" mode:mode appKey:appKey]];
+    [submenu addItem:[self cpuLimitPresetItemWithTitle:@"75%" value:@"75" mode:mode appKey:appKey]];
+    [submenu addItem:[self cpuLimitPresetItemWithTitle:@"50%" value:@"50" mode:mode appKey:appKey]];
     [submenu addItem:[self cpuLimitPresetItemWithTitle:@"25%" value:@"25" mode:mode appKey:appKey]];
     [submenu addItem:[self cpuLimitPresetItemWithTitle:@"10%" value:@"10" mode:mode appKey:appKey]];
     [submenu addItem:[self cpuLimitPresetItemWithTitle:@"5%" value:@"5" mode:mode appKey:appKey]];
-    [submenu addItem:[self cpuLimitPresetItemWithTitle:@"1%" value:@"1" mode:mode appKey:appKey]];
-    [submenu addItem:[self cpuLimitPresetItemWithTitle:@"0.01%" value:@"0.01" mode:mode appKey:appKey]];
     [submenu addItem:NSMenuItem.separatorItem];
 
-    NSMenuItem *custom = [[NSMenuItem alloc] initWithTitle:@"Custom..."
+    NSMenuItem *custom = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"custom")
                                                     action:@selector(promptForCPULimit:)
                                              keyEquivalent:@""];
     custom.target = self;
@@ -1243,14 +1328,14 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (NSMenuItem *)priorityMenuItemWithAppKey:(NSString *)appKey enabled:(BOOL)enabled {
     if (!enabled) {
-        return [self disabledItemWithTitle:@"Lower Priority..."];
+        return [self disabledItemWithTitle:OpenTamerLocalized(@"lower_priority_menu")];
     }
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Lower Priority..."
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"lower_priority_menu")
                                                   action:nil
                                            keyEquivalent:@""];
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Lower Priority"];
-    [submenu addItem:[self commandItemWithTitle:@"In Background" command:[NSString stringWithFormat:@"rule|priority-background|%@", appKey]]];
-    [submenu addItem:[self commandItemWithTitle:@"Always" command:[NSString stringWithFormat:@"rule|priority-always|%@", appKey]]];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"lower_priority")];
+    [submenu addItem:[self commandItemWithTitle:OpenTamerLocalized(@"in_background") command:[NSString stringWithFormat:@"rule|priority-background|%@", appKey]]];
+    [submenu addItem:[self commandItemWithTitle:OpenTamerLocalized(@"always") command:[NSString stringWithFormat:@"rule|priority-always|%@", appKey]]];
     item.submenu = submenu;
     return item;
 }
@@ -1258,13 +1343,13 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 - (NSMenuItem *)trackingMenuItemForRow:(NSDictionary *)row {
     NSString *appKey = [self appKeyFromRow:row];
     if (appKey.length == 0 || [self rowIsSystemBucket:row]) {
-        return [self disabledItemWithTitle:@"Track in..."];
+        return [self disabledItemWithTitle:OpenTamerLocalized(@"track_in_menu")];
     }
 
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Track in..."
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"track_in_menu")
                                                   action:nil
                                            keyEquivalent:@""];
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Track in"];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"track_in")];
 
     BOOL trackedInMenuBar = [row[@"trackedInMenuBar"] boolValue];
     BOOL trackedInManagedApps = [row[@"trackedInManagedApps"] boolValue];
@@ -1272,14 +1357,14 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     NSString *menuBarCommand = trackedInMenuBar
         ? [NSString stringWithFormat:@"rule|untrack-menu-bar|%@", appKey]
         : [NSString stringWithFormat:@"rule|track-menu-bar|%@", appKey];
-    NSMenuItem *menuBar = [self commandItemWithTitle:@"The Menu Bar" command:menuBarCommand];
+    NSMenuItem *menuBar = [self commandItemWithTitle:OpenTamerLocalized(@"track_menu_bar") command:menuBarCommand];
     [self setCommandItem:menuBar state:trackedInMenuBar ? NSControlStateValueOn : NSControlStateValueOff];
     [submenu addItem:menuBar];
 
     NSString *managedCommand = trackedInManagedApps
         ? [NSString stringWithFormat:@"rule|untrack-managed|%@", appKey]
         : [NSString stringWithFormat:@"rule|track-managed|%@", appKey];
-    NSMenuItem *managed = [self commandItemWithTitle:@"Tracked Processes" command:managedCommand];
+    NSMenuItem *managed = [self commandItemWithTitle:OpenTamerLocalized(@"tracked_processes") command:managedCommand];
     [self setCommandItem:managed state:trackedInManagedApps ? NSControlStateValueOn : NSControlStateValueOff];
     [submenu addItem:managed];
 
@@ -1288,7 +1373,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSMenu *)trackedStatusMenuForRow:(NSDictionary *)row {
-    NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
+    NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
     NSString *status = [self stringFromValue:row[@"status"] fallback:@""];
     NSString *blocker = [self stringFromValue:row[@"blockerReason"] fallback:@""];
     NSString *appKey = [self appKeyFromRow:row];
@@ -1296,17 +1381,17 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     NSMenu *menu = [[OpenTamerPersistentMenu alloc] initWithTitle:name];
     [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"%@  %@", name, [self cpuTitleForRow:row]]]];
     [self addCPUSummaryForRow:row toMenu:menu];
-    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Status: %@", status.length == 0 ? @"unknown" : status]]];
+    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"status_prefix"), OpenTamerStatusText(status)]]];
     if (blocker.length > 0) {
-        [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Note: %@", blocker]]];
+        [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"note_prefix"), OpenTamerSafetyText(blocker)]]];
     }
     [menu addItem:NSMenuItem.separatorItem];
-    [menu addItem:[self commandItemWithTitle:@"Untrack" command:[NSString stringWithFormat:@"rule|untrack-menu-bar|%@", appKey]]];
+    [menu addItem:[self commandItemWithTitle:OpenTamerLocalized(@"untrack") command:[NSString stringWithFormat:@"rule|untrack-menu-bar|%@", appKey]]];
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItem:[self trackingMenuItemForRow:row]];
     [menu addItem:[self priorityMenuItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
     [menu addItem:[self cpuLimitItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
-    NSMenuItem *pause = [self commandItemWithTitle:@"Pause in Background" command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
+    NSMenuItem *pause = [self commandItemWithTitle:OpenTamerLocalized(@"pause_background") command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
     [self setCommandItem:pause enabled:[self rowCanPause:row]];
     [menu addItem:pause];
     return menu;
@@ -1331,7 +1416,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
             self.trackedStatusItems[appKey] = item;
         }
 
-        NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
+        NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
         double displayCPU = [self displayCPUPercentForRow:row];
         item.button.title = [NSString stringWithFormat:@"%@ %@", [self shortStatusName:name], [self formattedStatusPercent:displayCPU]];
         item.button.toolTip = [NSString stringWithFormat:@"%@ %@ %@",
@@ -1360,7 +1445,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSMenu *)processMenuForRow:(NSDictionary *)row {
-    NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
+    NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
     NSString *status = [self stringFromValue:row[@"status"] fallback:@""];
     NSString *blocker = [self stringFromValue:row[@"blockerReason"] fallback:@""];
 
@@ -1369,26 +1454,26 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     [self addCPUSummaryForRow:row toMenu:submenu];
     if ([self rowIsSystemBucket:row]) {
         if (blocker.length > 0) {
-            [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Note: %@", blocker]]];
+            [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"note_prefix"), OpenTamerSafetyText(blocker)]]];
         }
         return submenu;
     }
-    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Status: %@", status.length == 0 ? @"unknown" : status]]];
+    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"status_prefix"), OpenTamerStatusText(status)]]];
     if (blocker.length > 0) {
-        [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Note: %@", blocker]]];
+        [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"note_prefix"), OpenTamerSafetyText(blocker)]]];
     }
     [submenu addItem:NSMenuItem.separatorItem];
     [submenu addItem:[self trackingMenuItemForRow:row]];
     [submenu addItem:[self priorityMenuItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
     [submenu addItem:[self cpuLimitItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
-    NSMenuItem *pause = [self commandItemWithTitle:@"Pause in Background" command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
+    NSMenuItem *pause = [self commandItemWithTitle:OpenTamerLocalized(@"pause_background") command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
     [self setCommandItem:pause enabled:[self rowCanPause:row]];
     [submenu addItem:pause];
     return submenu;
 }
 
 - (NSMenuItem *)processItemForRow:(NSDictionary *)row {
-    NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
+    NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
     int pid = [row[@"pid"] intValue];
     NSString *title = pid > 0
         ? [NSString stringWithFormat:@"%@  %@  PID %d", name, [self cpuTitleForRow:row], pid]
@@ -1403,7 +1488,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (void)addSummaryToMenu:(NSMenu *)menu {
-    NSString *summary = [NSString stringWithFormat:@"System CPU: %@",
+    NSString *summary = [NSString stringWithFormat:OpenTamerLocalized(@"system_cpu_summary"),
                          [self formattedPercent:[self totalCPU]]];
     [menu addItem:[self disabledItemWithTitle:summary]];
 
@@ -1418,7 +1503,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
     NSArray *rows = [self topProcesses];
     if (rows.count == 0) {
-        [menu addItem:[self disabledItemWithTitle:@"No process samples yet"]];
+        [menu addItem:[self disabledItemWithTitle:OpenTamerLocalized(@"empty_process_samples")]];
         return;
     }
 
@@ -1431,11 +1516,11 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (void)addTrackedAppsToMenu:(NSMenu *)menu {
-    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Tracked Processes (current %@)", [self topProcessesCPULabel]]]];
+    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"tracked_current"), [self topProcessesCPULabel]]]];
 
     NSArray *rows = [self trackedApps];
     if (rows.count == 0) {
-        [menu addItem:[self disabledItemWithTitle:@"No tracked processes configured"]];
+        [menu addItem:[self disabledItemWithTitle:OpenTamerLocalized(@"empty_tracked")]];
         return;
     }
 
@@ -1449,10 +1534,10 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (NSMenu *)allProcessesMenu {
     NSArray *rows = [self allProcesses];
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"All Processes"];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"all_processes")];
 
     if (rows.count == 0) {
-        [submenu addItem:[self disabledItemWithTitle:@"No processes observed yet"]];
+        [submenu addItem:[self disabledItemWithTitle:OpenTamerLocalized(@"empty_observed")]];
     } else {
         for (id rowObject in rows) {
             if (![rowObject isKindOfClass:NSDictionary.class]) {
@@ -1467,7 +1552,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 
 - (void)addAllProcessesToMenu:(NSMenu *)menu {
     NSArray *rows = [self allProcesses];
-    NSString *title = [NSString stringWithFormat:@"All Processes (%lu, current %@)", (unsigned long)rows.count, [self topProcessesCPULabel]];
+    NSString *title = [NSString stringWithFormat:OpenTamerLocalized(@"all_processes_menu"), (unsigned long)rows.count, [self topProcessesCPULabel]];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
     NSMenu *submenu = [self allProcessesMenu];
     item.submenu = submenu;
@@ -1475,37 +1560,37 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSMenu *)managedMenuForRow:(NSDictionary *)row {
-    NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
-    NSString *mode = [self stringFromValue:row[@"ruleLabel"] fallback:[self stringFromValue:row[@"ruleMode"] fallback:@"observe_only"]];
-    NSString *status = [self stringFromValue:row[@"status"] fallback:@"unknown"];
+    NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
+    NSString *mode = [self stringFromValue:row[@"ruleLabel"] fallback:OpenTamerLocalized(@"unknown")];
+    NSString *status = [self stringFromValue:row[@"status"] fallback:@""];
     NSString *blocker = [self stringFromValue:row[@"blockerReason"] fallback:@""];
     NSString *appKey = [self appKeyFromRow:row];
 
     NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:name];
     [self addCPUSummaryForRow:row toMenu:submenu];
-    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Status: %@", status]]];
-    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Rule: %@", mode]]];
+    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"status_prefix"), OpenTamerStatusText(status)]]];
+    [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"rule_prefix"), mode]]];
     if (blocker.length > 0) {
-        [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Note: %@", blocker]]];
+        [submenu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"note_prefix"), OpenTamerSafetyText(blocker)]]];
     }
     [submenu addItem:NSMenuItem.separatorItem];
     [submenu addItem:[self trackingMenuItemForRow:row]];
     [submenu addItem:[self priorityMenuItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
     [submenu addItem:[self cpuLimitItemWithAppKey:appKey enabled:[self rowCanSlow:row]]];
-    NSMenuItem *pause = [self commandItemWithTitle:@"Pause in Background" command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
+    NSMenuItem *pause = [self commandItemWithTitle:OpenTamerLocalized(@"pause_background") command:[NSString stringWithFormat:@"rule|pause|%@", appKey]];
     [self setCommandItem:pause enabled:[self rowCanPause:row]];
     [submenu addItem:pause];
     [submenu addItem:NSMenuItem.separatorItem];
-    [submenu addItem:[self commandItemWithTitle:@"Remove Rule" command:[NSString stringWithFormat:@"disable-rule|%@", appKey]]];
+    [submenu addItem:[self commandItemWithTitle:OpenTamerLocalized(@"remove_rule") command:[NSString stringWithFormat:@"disable-rule|%@", appKey]]];
     return submenu;
 }
 
 - (void)addManagedAppsToMenu:(NSMenu *)menu {
-    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:@"Managed Apps (current %@)", [self topProcessesCPULabel]]]];
+    [menu addItem:[self disabledItemWithTitle:[NSString stringWithFormat:OpenTamerLocalized(@"managed_apps_current"), [self topProcessesCPULabel]]]];
 
     NSArray *rows = [self managedApps];
     if (rows.count == 0) {
-        [menu addItem:[self disabledItemWithTitle:@"No app rules configured"]];
+        [menu addItem:[self disabledItemWithTitle:OpenTamerLocalized(@"empty_rules")]];
         return;
     }
 
@@ -1514,8 +1599,8 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
             continue;
         }
         NSDictionary *row = rowObject;
-        NSString *name = [self stringFromValue:row[@"name"] fallback:@"Unknown"];
-        NSString *mode = [self stringFromValue:row[@"ruleLabel"] fallback:[self stringFromValue:row[@"ruleMode"] fallback:@"observe_only"]];
+        NSString *name = OpenTamerDisplayName([self stringFromValue:row[@"name"] fallback:@""]);
+        NSString *mode = [self stringFromValue:row[@"ruleLabel"] fallback:OpenTamerLocalized(@"unknown")];
 
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"%@  %@  %@", name, [self cpuTitleForRow:row], mode]
                                                       action:nil
@@ -1534,7 +1619,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSMenuItem *)launchAtLoginItem {
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Launch at Login"
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"launch_at_login")
                                                   action:@selector(toggleLaunchAtLogin:)
                                            keyEquivalent:@""];
     item.target = self;
@@ -1546,7 +1631,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
             item.state = NSControlStateValueOn;
         } else if (status == SMAppServiceStatusRequiresApproval) {
             item.state = NSControlStateValueMixed;
-            item.toolTip = @"Approve OpenTamer in System Settings to launch it at login.";
+            item.toolTip = OpenTamerLocalized(@"approve_login");
         } else {
             item.state = NSControlStateValueOff;
         }
@@ -1625,8 +1710,8 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (void)addHighCPUThresholdPreferenceToMenu:(NSMenu *)menu {
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Threshold" action:nil keyEquivalent:@""];
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Threshold"];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"threshold") action:nil keyEquivalent:@""];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"threshold")];
     NSArray *labels = @[@"50%", @"75%", @"90%", @"100%"];
     NSArray *values = @[@50, @75, @90, @100];
     for (NSUInteger index = 0; index < labels.count; index++) {
@@ -1639,7 +1724,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     }
     [submenu addItem:NSMenuItem.separatorItem];
 
-    NSMenuItem *custom = [[NSMenuItem alloc] initWithTitle:@"Custom..."
+    NSMenuItem *custom = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"custom")
                                                     action:@selector(promptForHighCPUThreshold:)
                                              keyEquivalent:@""];
     custom.target = self;
@@ -1671,7 +1756,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     for (NSUInteger index = 0; index < count; index++) {
         NSString *label = [labels[index] isKindOfClass:NSString.class] ? labels[index] : @"";
         NSString *value = [values[index] isKindOfClass:NSString.class] ? values[index] : fallback;
-        if (label.length == 0 || value.length == 0) {
+        if (label.length == 0) {
             continue;
         }
         [submenu addItem:[self stringPreferencePresetItemWithTitle:label key:key value:value fallback:fallback]];
@@ -1688,7 +1773,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
     NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:title];
 
-    NSMenuItem *off = [self commandItemWithTitle:@"Off" command:[NSString stringWithFormat:@"pref-clear|%@", key]];
+    NSMenuItem *off = [self commandItemWithTitle:OpenTamerLocalized(@"dur_off") command:[NSString stringWithFormat:@"pref-clear|%@", key]];
     [self setCommandItem:off state:[self hasPreference:key] ? NSControlStateValueOff : NSControlStateValueOn];
     [submenu addItem:off];
     [submenu addItem:NSMenuItem.separatorItem];
@@ -1712,102 +1797,109 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (NSMenu *)preferencesMenu {
-    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Preferences"];
+    NSMenu *submenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"preferences")];
 
-    NSMenuItem *general = [[NSMenuItem alloc] initWithTitle:@"General" action:nil keyEquivalent:@""];
-    NSMenu *generalMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"General"];
+    NSMenuItem *general = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"general") action:nil keyEquivalent:@""];
+    NSMenu *generalMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"general")];
     [generalMenu addItem:[self launchAtLoginItem]];
-    [generalMenu addItem:[self boolPreferenceItemWithTitle:@"Show Menu Icon" key:@"showMenuBarIcon" fallback:[self showMenuBarIcon]]];
-    [generalMenu addItem:[self boolPreferenceItemWithTitle:@"Aggregate By Name" key:@"aggregateByName" fallback:YES]];
-    [self addStringPreferenceWithTitle:@"CPU Display"
+    [generalMenu addItem:[self boolPreferenceItemWithTitle:OpenTamerLocalized(@"show_menu_icon") key:@"showMenuBarIcon" fallback:[self showMenuBarIcon]]];
+    [generalMenu addItem:[self boolPreferenceItemWithTitle:OpenTamerLocalized(@"aggregate_by_name") key:@"aggregateByName" fallback:YES]];
+    [self addStringPreferenceWithTitle:OpenTamerLocalized(@"language")
+                                    key:@"language"
+                               fallback:@""
+                                 labels:@[OpenTamerLocalized(@"lang_auto"), OpenTamerLocalized(@"lang_english"), OpenTamerLocalized(@"lang_chinese")]
+                                 values:@[@"", @"en", @"zh"]
+                                 toMenu:generalMenu];
+    [generalMenu addItem:NSMenuItem.separatorItem];
+    [self addStringPreferenceWithTitle:OpenTamerLocalized(@"cpu_display")
                                     key:@"cpuDisplayMode"
                                fallback:@"per_core_process"
-                                 labels:@[@"Per-Core Process CPU", @"System Normalized CPU"]
+                                 labels:@[OpenTamerLocalized(@"per_core_cpu"), OpenTamerLocalized(@"system_normalized_cpu")]
                                  values:@[@"per_core_process", @"system_normalized"]
                                  toMenu:generalMenu];
-    [self addStringPreferenceWithTitle:@"Theme"
+    [self addStringPreferenceWithTitle:OpenTamerLocalized(@"theme")
                                     key:@"theme"
                                fallback:@"system"
-                                 labels:@[@"System theme", @"Light", @"Dark"]
+                                 labels:@[OpenTamerLocalized(@"theme_system"), OpenTamerLocalized(@"theme_light"), OpenTamerLocalized(@"theme_dark")]
                                  values:@[@"system", @"light", @"dark"]
                                  toMenu:generalMenu];
-    [self addDurationPreferenceWithTitle:@"Wake Grace"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"wake_grace")
                                      key:@"wakeGrace"
                                 fallback:30
-                                  labels:@[@"Off", @"10 seconds", @"30 seconds", @"1 minute", @"5 minutes"]
+                                  labels:@[OpenTamerLocalized(@"dur_off"), OpenTamerLocalized(@"dur_10s"), OpenTamerLocalized(@"dur_30s"), OpenTamerLocalized(@"dur_1m"), OpenTamerLocalized(@"dur_5m")]
                                  seconds:@[@0, @10, @30, @60, @300]
                                   toMenu:generalMenu];
     general.submenu = generalMenu;
     [submenu addItem:general];
 
-    NSMenuItem *stats = [[NSMenuItem alloc] initWithTitle:@"Stats & Graph" action:nil keyEquivalent:@""];
-    NSMenu *statsMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Stats & Graph"];
-    [self addDurationPreferenceWithTitle:@"Stats Interval"
+    NSMenuItem *stats = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"stats_graph") action:nil keyEquivalent:@""];
+    NSMenu *statsMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"stats_graph")];
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"stats_interval")
                                      key:@"statsInterval"
                                 fallback:3
-                                  labels:@[@"3 seconds", @"5 seconds", @"10 seconds", @"30 seconds", @"1 minute"]
+                                  labels:@[OpenTamerLocalized(@"dur_3s"), OpenTamerLocalized(@"dur_5s"), OpenTamerLocalized(@"dur_10s"), OpenTamerLocalized(@"dur_30s"), OpenTamerLocalized(@"dur_1m")]
                                  seconds:@[@3, @5, @10, @30, @60]
                                   toMenu:statsMenu];
-    [self addDurationPreferenceWithTitle:@"Averaging Window"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"averaging_window")
                                      key:@"averagingWindow"
                                 fallback:30
-                                  labels:@[@"10 seconds", @"30 seconds", @"1 minute", @"2 minutes", @"5 minutes"]
+                                  labels:@[OpenTamerLocalized(@"dur_10s"), OpenTamerLocalized(@"dur_30s"), OpenTamerLocalized(@"dur_1m"), OpenTamerLocalized(@"dur_2m"), OpenTamerLocalized(@"dur_5m")]
                                  seconds:@[@10, @30, @60, @120, @300]
                                   toMenu:statsMenu];
-    [self addDurationPreferenceWithTitle:@"CPU Graph Window"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"cpu_graph_window")
                                      key:@"cpuGraphWindow"
                                 fallback:300
-                                  labels:@[@"1 minute", @"5 minutes", @"10 minutes", @"30 minutes"]
+                                  labels:@[OpenTamerLocalized(@"dur_1m"), OpenTamerLocalized(@"dur_5m"), OpenTamerLocalized(@"dur_10m"), OpenTamerLocalized(@"dur_30m")]
                                  seconds:@[@60, @300, @600, @1800]
                                   toMenu:statsMenu];
-    [self addStringPreferenceWithTitle:@"Top Processes Sort"
+    [self addStringPreferenceWithTitle:OpenTamerLocalized(@"top_sort")
                                     key:@"topProcessesSort"
                                fallback:@"current"
-                                 labels:@[@"Current CPU", @"60s Average"]
+                                 labels:@[OpenTamerLocalized(@"current_cpu"), OpenTamerLocalized(@"average_cpu")]
                                  values:@[@"current", @"average"]
                                  toMenu:statsMenu];
     stats.submenu = statsMenu;
     [submenu addItem:stats];
 
-    NSMenuItem *alerts = [[NSMenuItem alloc] initWithTitle:@"High CPU Alerts" action:nil keyEquivalent:@""];
-    NSMenu *alertsMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"High CPU Alerts"];
-    [alertsMenu addItem:[self boolPreferenceItemWithTitle:@"Detection Enabled" key:@"highCPUDetectionEnabled" fallback:YES]];
+    NSMenuItem *alerts = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"high_cpu_alerts") action:nil keyEquivalent:@""];
+    NSMenu *alertsMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"high_cpu_alerts")];
+    [alertsMenu addItem:[self boolPreferenceItemWithTitle:OpenTamerLocalized(@"detection_enabled") key:@"highCPUDetectionEnabled" fallback:YES]];
     [self addHighCPUThresholdPreferenceToMenu:alertsMenu];
-    [self addDurationPreferenceWithTitle:@"Alert After"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"alert_after")
                                      key:@"highCPUDuration"
                                 fallback:30
-                                  labels:@[@"10 seconds", @"30 seconds", @"1 minute", @"5 minutes"]
+                                  labels:@[OpenTamerLocalized(@"dur_10s"), OpenTamerLocalized(@"dur_30s"), OpenTamerLocalized(@"dur_1m"), OpenTamerLocalized(@"dur_5m")]
                                  seconds:@[@10, @30, @60, @300]
                                   toMenu:alertsMenu];
-    [self addDurationPreferenceWithTitle:@"Cooldown"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"cooldown")
                                      key:@"highCPUCooldown"
                                 fallback:600
-                                  labels:@[@"1 minute", @"5 minutes", @"10 minutes", @"30 minutes", @"1 hour"]
+                                  labels:@[OpenTamerLocalized(@"dur_1m"), OpenTamerLocalized(@"dur_5m"), OpenTamerLocalized(@"dur_10m"), OpenTamerLocalized(@"dur_30m"), OpenTamerLocalized(@"dur_1h")]
                                  seconds:@[@60, @300, @600, @1800, @3600]
                                   toMenu:alertsMenu];
     alerts.submenu = alertsMenu;
     [submenu addItem:alerts];
 
-    NSMenuItem *policy = [[NSMenuItem alloc] initWithTitle:@"Policy Guards" action:nil keyEquivalent:@""];
-    NSMenu *policyMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:@"Policy Guards"];
-    [self addNullableFloatPreferenceWithTitle:@"Disable On AC Battery Above"
+    NSMenuItem *policy = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"policy_guards") action:nil keyEquivalent:@""];
+    NSMenu *policyMenu = [[OpenTamerPersistentMenu alloc] initWithTitle:OpenTamerLocalized(@"policy_guards")];
+    [self addNullableFloatPreferenceWithTitle:OpenTamerLocalized(@"disable_ac_battery")
                                           key:@"disableWhenACBatteryAbove"
                                        labels:@[@"50%", @"75%", @"90%", @"100%"]
                                        values:@[@50, @75, @90, @100]
                                        toMenu:policyMenu];
-    [self addDurationPreferenceWithTitle:@"Disable When User Idle Longer Than"
+    [self addDurationPreferenceWithTitle:OpenTamerLocalized(@"disable_idle")
                                      key:@"disableWhenUserIdleLongerThan"
                                 fallback:0
-                                  labels:@[@"Off", @"5 minutes", @"15 minutes", @"30 minutes", @"1 hour"]
+                                  labels:@[OpenTamerLocalized(@"dur_off"), OpenTamerLocalized(@"dur_5m"), OpenTamerLocalized(@"dur_15m"), OpenTamerLocalized(@"dur_30m"), OpenTamerLocalized(@"dur_1h")]
                                  seconds:@[@0, @300, @900, @1800, @3600]
                                   toMenu:policyMenu];
     policy.submenu = policyMenu;
     [submenu addItem:policy];
 
-    [submenu addItem:[self commandItemWithTitle:@"Reset Defaults" command:@"reset-defaults"]];
+    [submenu addItem:[self commandItemWithTitle:OpenTamerLocalized(@"reset_defaults") command:@"reset-defaults"]];
 
     [submenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit OpenTamer"
+    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"quit_app")
                                                   action:@selector(quit:)
                                            keyEquivalent:@"q"];
     quit.target = self;
@@ -1825,7 +1917,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
 }
 
 - (void)addPreferencesToMenu:(NSMenu *)menu {
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Preferences" action:nil keyEquivalent:@""];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:OpenTamerLocalized(@"preferences") action:nil keyEquivalent:@""];
     NSMenu *submenu = [self preferencesMenu];
     item.submenu = submenu;
     [menu addItem:item];
@@ -1880,7 +1972,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
                                          alignment:NSTextAlignmentLeft];
     [view addSubview:titleLabel];
     if (showColumns) {
-        BOOL topProcessesHeader = [title isEqualToString:@"Top Processes"];
+        BOOL topProcessesHeader = [title isEqualToString:OpenTamerLocalized(@"top_processes")];
         BOOL sortAverage = [[self topProcessesSortMode] isEqualToString:@"average"];
         NSFont *cpuFont = topProcessesHeader && !sortAverage
             ? [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold]
@@ -1893,12 +1985,12 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
         NSRect cpuFrame = NSMakeRect(width - padding - 116, *y, 52, 18);
         NSRect avgFrame = NSMakeRect(width - padding - 58, *y, 52, 18);
         NSTextField *cpu = [self labelWithFrame:cpuFrame
-                                          title:@"CPU"
+                                          title:OpenTamerLocalized(@"cpu_short")
                                            font:cpuFont
                                           color:cpuColor
                                       alignment:NSTextAlignmentRight];
         NSTextField *avg = [self labelWithFrame:avgFrame
-                                          title:@"Avg"
+                                          title:OpenTamerLocalized(@"avg")
                                            font:avgFont
                                           color:avgColor
                                       alignment:NSTextAlignmentRight];
@@ -1994,14 +2086,14 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     [view addSubview:title];
 
     NSRect refreshFrame = NSMakeRect(width - padding - 104, y + 2, 68, 26);
-    [view addActionNamed:@"refresh" frame:refreshFrame row:nil kind:nil title:@"Refresh"];
+    [view addActionNamed:@"refresh" frame:refreshFrame row:nil kind:nil title:OpenTamerLocalized(@"refresh")];
 
     NSRect prefsFrame = NSMakeRect(width - padding - 30, y + 2, 30, 26);
     [view addActionNamed:@"preferences" frame:prefsFrame row:nil kind:nil title:@"..."];
 
     y += 38;
 
-    NSString *summary = [NSString stringWithFormat:@"System CPU %@   %@",
+    NSString *summary = [NSString stringWithFormat:OpenTamerLocalized(@"system_cpu_headline"),
                          [self formattedStatusPercent:[self totalCPU]],
                          [self statusMessage]];
     NSTextField *summaryLabel = [self labelWithFrame:NSMakeRect(padding, y, width - padding * 2, 16)
@@ -2023,8 +2115,8 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     [view addSubview:graph];
     y += 122;
 
-    [self addSectionHeaderToView:view y:&y width:width padding:padding title:@"Top Processes" showColumns:YES];
-    [self addProcessRows:[self topProcesses] toView:view y:&y width:width padding:padding rowCount:10 kind:@"process" graphColorIndexesByAppKey:graphColorIndexesByAppKey emptyText:@"No process samples yet"];
+    [self addSectionHeaderToView:view y:&y width:width padding:padding title:OpenTamerLocalized(@"top_processes") showColumns:YES];
+    [self addProcessRows:[self topProcesses] toView:view y:&y width:width padding:padding rowCount:10 kind:@"process" graphColorIndexesByAppKey:graphColorIndexesByAppKey emptyText:OpenTamerLocalized(@"empty_process_samples")];
 
     y += 8;
     NSRect allFrame = NSMakeRect(padding, y, width - padding * 2, 26);
@@ -2032,15 +2124,15 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
                    frame:allFrame
                      row:nil
                     kind:nil
-                   title:[NSString stringWithFormat:@"All Processes (%lu) >", (unsigned long)[self allProcesses].count]];
+                   title:[NSString stringWithFormat:OpenTamerLocalized(@"all_processes_count"), (unsigned long)[self allProcesses].count]];
     y += 34;
 
-    [self addSectionHeaderToView:view y:&y width:width padding:padding title:@"Tracked Processes" showColumns:YES];
-    [self addProcessRows:[self trackedApps] toView:view y:&y width:width padding:padding rowCount:2 kind:@"process" graphColorIndexesByAppKey:nil emptyText:@"No tracked processes"];
+    [self addSectionHeaderToView:view y:&y width:width padding:padding title:OpenTamerLocalized(@"tracked_processes") showColumns:YES];
+    [self addProcessRows:[self trackedApps] toView:view y:&y width:width padding:padding rowCount:2 kind:@"process" graphColorIndexesByAppKey:nil emptyText:OpenTamerLocalized(@"empty_tracked_panel")];
 
     y += 8;
-    [self addSectionHeaderToView:view y:&y width:width padding:padding title:@"Managed Processes" showColumns:NO];
-    [self addProcessRows:[self managedApps] toView:view y:&y width:width padding:padding rowCount:2 kind:@"managed" graphColorIndexesByAppKey:nil emptyText:@"No managed processes"];
+    [self addSectionHeaderToView:view y:&y width:width padding:padding title:OpenTamerLocalized(@"managed_processes") showColumns:NO];
+    [self addProcessRows:[self managedApps] toView:view y:&y width:width padding:padding rowCount:2 kind:@"managed" graphColorIndexesByAppKey:nil emptyText:OpenTamerLocalized(@"empty_managed")];
 
     [view installActionButtonsWithTarget:self action:@selector(performPanelButtonAction:)];
 
@@ -2246,11 +2338,11 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     field.placeholderString = @"0.01";
 
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = [mode isEqualToString:@"limit-background"] ? @"Limit CPU in Background" : @"Limit CPU Always";
-    alert.informativeText = @"Enter a maximum CPU percentage. Minimum is 0.01%.";
+    alert.messageText = [mode isEqualToString:@"limit-background"] ? OpenTamerLocalized(@"limit_bg_title") : OpenTamerLocalized(@"limit_always_title");
+    alert.informativeText = OpenTamerLocalized(@"limit_prompt");
     alert.accessoryView = field;
-    [alert addButtonWithTitle:@"Apply"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert addButtonWithTitle:OpenTamerLocalized(@"apply")];
+    [alert addButtonWithTitle:OpenTamerLocalized(@"cancel")];
 
     if ([alert runModal] != NSAlertFirstButtonReturn) {
         return;
@@ -2260,9 +2352,9 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     double value = rawValue.doubleValue;
     if (value < 0.01) {
         NSAlert *validation = [[NSAlert alloc] init];
-        validation.messageText = @"CPU limit not applied";
-        validation.informativeText = @"Enter a value of 0.01% or higher.";
-        [validation addButtonWithTitle:@"OK"];
+        validation.messageText = OpenTamerLocalized(@"limit_not_applied");
+        validation.informativeText = OpenTamerLocalized(@"limit_min");
+        [validation addButtonWithTitle:OpenTamerLocalized(@"ok")];
         [validation runModal];
         return;
     }
@@ -2280,11 +2372,11 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     field.placeholderString = @"75";
 
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"High CPU Alert Threshold";
-    alert.informativeText = @"Enter the system CPU percentage that should trigger alerts.";
+    alert.messageText = OpenTamerLocalized(@"threshold_title");
+    alert.informativeText = OpenTamerLocalized(@"threshold_prompt");
     alert.accessoryView = field;
-    [alert addButtonWithTitle:@"Apply"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert addButtonWithTitle:OpenTamerLocalized(@"apply")];
+    [alert addButtonWithTitle:OpenTamerLocalized(@"cancel")];
 
     if ([alert runModal] != NSAlertFirstButtonReturn) {
         return;
@@ -2294,9 +2386,9 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
     double value = rawValue.doubleValue;
     if (value <= 0) {
         NSAlert *validation = [[NSAlert alloc] init];
-        validation.messageText = @"Alert threshold not applied";
-        validation.informativeText = @"Enter a value greater than 0%.";
-        [validation addButtonWithTitle:@"OK"];
+        validation.messageText = OpenTamerLocalized(@"threshold_not_applied");
+        validation.informativeText = OpenTamerLocalized(@"threshold_min");
+        [validation addButtonWithTitle:OpenTamerLocalized(@"ok")];
         [validation runModal];
         return;
     }
@@ -2320,9 +2412,9 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
         : [service registerAndReturnError:&error];
     if (!updated) {
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"Login item not updated";
-        alert.informativeText = error.localizedDescription ?: @"OpenTamer could not update its Login Items setting.";
-        [alert addButtonWithTitle:@"OK"];
+        alert.messageText = OpenTamerLocalized(@"login_not_updated");
+        alert.informativeText = error.localizedDescription ?: OpenTamerLocalized(@"login_error");
+        [alert addButtonWithTitle:OpenTamerLocalized(@"ok")];
         [alert runModal];
         return;
     }
@@ -2334,7 +2426,7 @@ static const CGFloat OpenTamerStatusItemLengthTextOnly = 52.0;
             ? NSControlStateValueOn
             : status == SMAppServiceStatusRequiresApproval ? NSControlStateValueMixed : NSControlStateValueOff;
         item.toolTip = status == SMAppServiceStatusRequiresApproval
-            ? @"Approve OpenTamer in System Settings to launch it at login."
+            ? OpenTamerLocalized(@"approve_login")
             : nil;
     }
 }

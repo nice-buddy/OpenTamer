@@ -41,6 +41,7 @@ func TestPreferencesMenuExposesExpectedConfigKeys(t *testing.T) {
 		"highCPUCooldown",
 		"highCPUDuration",
 		"highCPUThreshold",
+		"language",
 		"showMenuBarIcon",
 		"statsInterval",
 		"theme",
@@ -86,8 +87,8 @@ func TestManagementPreferencesMovedIntoGeneral(t *testing.T) {
 		strings.Contains(source, `"CPU Limiter Enabled"`) {
 		t.Fatal("preferences menu should not expose the old Management submenu or toggles")
 	}
-	generalStart := strings.Index(source, `initWithTitle:@"General"`)
-	statsStart := strings.Index(source, `initWithTitle:@"Stats & Graph"`)
+	generalStart := strings.Index(source, `initWithTitle:OpenTamerLocalized(@"general")`)
+	statsStart := strings.Index(source, `initWithTitle:OpenTamerLocalized(@"stats_graph")`)
 	if generalStart < 0 || statsStart < 0 || generalStart >= statsStart {
 		t.Fatal("preferences menu should build General before Stats & Graph")
 	}
@@ -114,7 +115,7 @@ func TestLaunchAtLoginPreferenceUsesServiceManagement(t *testing.T) {
 		`SMAppService.mainAppService`,
 		`registerAndReturnError`,
 		`unregisterAndReturnError`,
-		`Launch at Login`,
+		`OpenTamerLocalized(@"launch_at_login")`,
 	} {
 		if !strings.Contains(source, entry) {
 			t.Fatalf("launch-at-login preference should include %s", entry)
@@ -242,8 +243,8 @@ func TestProcessMenusUseSelectedCPUDisplayMode(t *testing.T) {
 	for _, expected := range []string{
 		"OpenTamerDisplayCPUFromRow",
 		"OpenTamerAverageDisplayCPUFromRow",
-		`@"Process CPU"`,
-		`@"System CPU"`,
+		`OpenTamerLocalized(@"process_cpu_label")`,
+		`OpenTamerLocalized(@"system_cpu_label")`,
 		"topProcessesCPULabel",
 	} {
 		if !strings.Contains(source, expected) {
@@ -252,5 +253,53 @@ func TestProcessMenusUseSelectedCPUDisplayMode(t *testing.T) {
 	}
 	if strings.Contains(source, "current system CPU") {
 		t.Fatal("process section headers should not hard-code system CPU")
+	}
+}
+
+func TestStatusItemWidthFitsContent(t *testing.T) {
+	payload, err := os.ReadFile("menu_bar_bridge.m")
+	if err != nil {
+		t.Fatalf("read menu bridge: %v", err)
+	}
+	source := string(payload)
+
+	if !strings.Contains(source, "- (CGFloat)statusItemLengthForTitle:(NSString *)title showIcon:(BOOL)showIcon") {
+		t.Fatal("status item should compute a width from the icon and CPU percentage")
+	}
+	if !strings.Contains(source, "self.statusItem.length = [self statusItemLengthForTitle:title showIcon:showIcon];") {
+		t.Fatal("status item should use the computed content width")
+	}
+	if strings.Contains(source, "OpenTamerStatusItemLengthWithIcon") ||
+		strings.Contains(source, "OpenTamerStatusItemLengthTextOnly") {
+		t.Fatal("status item should not use fixed widths wider than its content")
+	}
+}
+
+func TestCPULimitPresetsIncludeHighPercentages(t *testing.T) {
+	payload, err := os.ReadFile("menu_bar_bridge.m")
+	if err != nil {
+		t.Fatalf("read menu bridge: %v", err)
+	}
+	source := string(payload)
+
+	for _, preset := range []string{
+		`cpuLimitPresetItemWithTitle:@"100%" value:@"100"`,
+		`cpuLimitPresetItemWithTitle:@"75%" value:@"75"`,
+		`cpuLimitPresetItemWithTitle:@"50%" value:@"50"`,
+		`cpuLimitPresetItemWithTitle:@"25%" value:@"25"`,
+	} {
+		if !strings.Contains(source, preset) {
+			t.Fatalf("CPU limit presets should include %s", preset)
+		}
+	}
+
+	// Ensure low-value presets are removed
+	for _, removed := range []string{
+		`cpuLimitPresetItemWithTitle:@"1%" value:@"1"`,
+		`cpuLimitPresetItemWithTitle:@"0.01%" value:@"0.01"`,
+	} {
+		if strings.Contains(source, removed) {
+			t.Fatalf("CPU limit presets should NOT include %s", removed)
+		}
 	}
 }

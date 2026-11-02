@@ -13,6 +13,7 @@ type HighCPUNotice struct {
 	CPUPercent  float64       `json:"cpuPercent"`
 	ExceededFor time.Duration `json:"exceededFor"`
 	At          time.Time     `json:"at"`
+	Language    string        `json:"language,omitempty"`
 }
 
 type Notifier interface {
@@ -25,6 +26,7 @@ type HighCPUConfig struct {
 	Duration        time.Duration
 	Cooldown        time.Duration
 	LogicalCPUCount int
+	Language        string
 }
 
 type highCPUAppState struct {
@@ -41,13 +43,15 @@ func NewHighCPUDetector() *HighCPUDetector {
 }
 
 func HighCPUConfigFromPreferences(preferences core.GlobalPreferences) HighCPUConfig {
-	return HighCPUConfig{
+	config := HighCPUConfig{
 		Enabled:         preferences.HighCPUDetectionEnabled,
 		Threshold:       preferences.HighCPUThreshold,
 		Duration:        preferences.HighCPUDuration,
 		Cooldown:        preferences.HighCPUCooldown,
 		LogicalCPUCount: runtime.NumCPU(),
 	}
+	config.Language = preferences.Language
+	return config
 }
 
 func (detector *HighCPUDetector) Update(config HighCPUConfig, groups []core.AppGroup, samples []core.AppCPUSample, statuses map[string]core.AppStatus, now time.Time) []HighCPUNotice {
@@ -92,6 +96,7 @@ func (detector *HighCPUDetector) Update(config HighCPUConfig, groups []core.AppG
 			CPUPercent:  systemCPUPercent,
 			ExceededFor: exceededFor,
 			At:          now,
+			Language:    config.Language,
 		}
 		notices = append(notices, notice)
 		state.LastNotifiedAt = now

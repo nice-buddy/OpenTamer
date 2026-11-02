@@ -230,7 +230,7 @@ func TestAppendSystemCPUResidualRowAccountsForVisibleGap(t *testing.T) {
 		{Name: "B", CPUPercent: 16, SystemCPUPercent: 2},
 	}
 
-	rows = AppendSystemCPUResidualRow(rows, 20, 8, 3)
+	rows = AppendSystemCPUResidualRow(rows, 20, 8, 3, EnglishLocale())
 
 	if len(rows) != 3 {
 		t.Fatalf("rows = %d, want 3 with residual bucket", len(rows))
@@ -256,7 +256,7 @@ func TestAppendSystemCPUResidualRowMakesRoomWhenLimited(t *testing.T) {
 		{Name: "B", CPUPercent: 16, SystemCPUPercent: 2},
 	}
 
-	rows = AppendSystemCPUResidualRow(rows, 20, 8, 2)
+	rows = AppendSystemCPUResidualRow(rows, 20, 8, 2, EnglishLocale())
 
 	if len(rows) != 2 {
 		t.Fatalf("rows = %d, want limited rows with bucket", len(rows))
@@ -356,6 +356,7 @@ func TestBuildManagedRowsUsesStatuses(t *testing.T) {
 		[]core.AppGroup{{ID: app, Status: core.AppStatusPaused}},
 		[]core.AppCPUSample{{AppID: app, CPUPercent: 20}},
 		map[string]core.AppStatus{app.Key(): core.AppStatusPaused},
+		EnglishLocale(),
 	)
 
 	if len(rows) != 1 {
@@ -385,6 +386,7 @@ func TestBuildManagedRowsSkipsObserveOnlyTrackingRules(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		EnglishLocale(),
 	)
 
 	if len(rows) != 1 {
@@ -410,6 +412,7 @@ func TestBuildManagedRowsIncludesSafetyCapabilities(t *testing.T) {
 		}},
 		nil,
 		nil,
+		EnglishLocale(),
 	)
 
 	if len(rows) != 1 {
@@ -434,6 +437,7 @@ func TestBuildManagedRowsLabelsPriorityScope(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		EnglishLocale(),
 	)
 
 	labels := map[string]string{}
@@ -466,7 +470,7 @@ func TestBuildManagedRowsLabelsCPULimitScope(t *testing.T) {
 				Mode:           core.RuleModeLimitCPUInBackground,
 				BackgroundOnly: tc.backgroundOnly,
 				CPUPercent:     tc.target,
-			}}, nil, nil, nil)
+			}}, nil, nil, nil, EnglishLocale())
 			if len(rows) != 1 || rows[0].RuleLabel != tc.label {
 				t.Fatalf("rows = %#v, want label %q", rows, tc.label)
 			}

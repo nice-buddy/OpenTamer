@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"runtime"
 	"time"
 
@@ -18,6 +17,7 @@ const (
 
 func (controller *Controller) buildMenuBarStateLocked(now time.Time, status string) ui.MenuBarViewState {
 	cfg := controller.cfg
+	locale := ui.LocaleForPreferences(cfg.Preferences)
 	alert := controller.systemAlertLevelLocked(now)
 	logicalCPUCount := runtime.NumCPU()
 	allRows := ui.WithSystemCPUPercent(ui.ApplyTrackingToProcessRows(ui.BuildAllProcessRows(controller.lastGroups, controller.lastAppSamples, controller.lastStatuses, true), cfg.Rules), logicalCPUCount)
@@ -27,16 +27,16 @@ func (controller *Controller) buildMenuBarStateLocked(now time.Time, status stri
 	if core.NormalizeTopProcessesSortMode(cfg.Preferences.TopProcessesSort) == core.TopProcessesSortAverage {
 		rows = ui.WithCurrentCPUForAverageRows(limitProcessRows(averageRows, topProcessesLimit), allRows)
 	}
-	rows = ui.AppendSystemCPUResidualRow(rows, controller.lastTotalCPU, logicalCPUCount, topProcessesLimit)
+	rows = ui.AppendSystemCPUResidualRow(rows, controller.lastTotalCPU, logicalCPUCount, topProcessesLimit, locale)
 	menuBarRows := ui.WithSystemCPUPercent(ui.BuildMenuBarRows(cfg.Rules, controller.lastGroups, controller.lastAppSamples, controller.lastStatuses, true), logicalCPUCount)
 	menuBarRows = ui.WithAverageCPUForCurrentRows(menuBarRows, averageRows)
 	tracked := ui.WithSystemCPUPercent(ui.BuildTrackedRows(cfg.Rules, controller.lastGroups, controller.lastAppSamples, controller.lastStatuses, true), logicalCPUCount)
 	tracked = ui.WithAverageCPUForCurrentRows(tracked, averageRows)
-	managed := ui.WithManagedSystemCPUPercent(ui.BuildManagedRows(cfg.Rules, controller.lastGroups, controller.lastAppSamples, controller.lastStatuses), logicalCPUCount)
+	managed := ui.WithManagedSystemCPUPercent(ui.BuildManagedRows(cfg.Rules, controller.lastGroups, controller.lastAppSamples, controller.lastStatuses, locale), logicalCPUCount)
 	managed = ui.WithManagedAverageCPU(managed, averageRows)
 	graph := controller.cpuGraphLocked(rows, logicalCPUCount, now)
 	if status == "" {
-		status = fmt.Sprintf("%d apps observed", len(controller.lastGroups))
+		status = locale.StatusAppsObserved(len(controller.lastGroups))
 	}
 	return ui.MenuBarViewState{
 		Enabled:         cfg.Preferences.ManagementEnabled,
@@ -52,6 +52,7 @@ func (controller *Controller) buildMenuBarStateLocked(now time.Time, status stri
 		TopProcesses:    rows,
 		AllProcesses:    allRows,
 		ManagedApps:     managed,
+		Locale:          locale,
 	}
 }
 

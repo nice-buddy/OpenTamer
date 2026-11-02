@@ -143,6 +143,7 @@ type GlobalPreferences struct {
 	HighCPUDuration               time.Duration `json:"highCPUDuration"`
 	HighCPUCooldown               time.Duration `json:"highCPUCooldown"`
 	Theme                         string        `json:"theme"`
+	Language                      string        `json:"language"`
 }
 
 const (
@@ -194,6 +195,22 @@ func NormalizeCPUDisplayMode(mode string) string {
 
 type Clock interface {
 	Now() time.Time
+}
+
+const (
+	LanguageEnglish = "en"
+	LanguageChinese = "zh"
+)
+
+func NormalizeLanguage(language string) string {
+	switch language {
+	case LanguageChinese:
+		return LanguageChinese
+	case LanguageEnglish:
+		return LanguageEnglish
+	default:
+		return ""
+	}
 }
 
 func NormalizeThemeMode(mode string) string {
